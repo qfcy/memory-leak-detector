@@ -1,3 +1,5 @@
+**The English introduction is placed below the Chinese version.**
+
 memleak.h是一个轻量级的内存泄漏检测库，通过在内部实现一个内存池，实现自己的`malloc`、`calloc`、`realloc`、`free`、`new`和`delete`函数并重载标准库的函数，实现了内存泄漏检测功能，支持c和c++调用。  
 只需要在开头导入memleak.h，并调用`setup_mem`和`set_leak_detect`函数，就能启用退出程序时输出内存泄漏信息。  
 `setup_mem`函数还能设置内存大小，模拟小内存环境，测试程序能否处理内存不足的情况。  
@@ -91,3 +93,99 @@ Total: 1048576B Used: 140B Free: 1048436B
 如果`realloc`和`free`传入了错误的内存地址，则会抛出`ReallocError`异常，对于`free`则是抛出`DoubleFreeError`。在C++中可以捕获这两个异常，在C中则会直接终止程序。  
 `malloc`和`calloc`传入的总大小如果是0，则会返回`nullptr`。`realloc`如果传入的大小是0，则会释放传入的内存指针。  
 `free`支持传入`nullptr`作为参数。  
+
+
+`memleak.h` is a lightweight memory leak detection library. By implementing an internal memory pool and overriding standard library functions such as `malloc`, `calloc`, `realloc`, `free`, `new`, and `delete`, it provides memory leak detection functionality and supports both C and C++ calls.  
+Simply import `memleak.h` at the beginning of your code and call the `setup_mem` and `set_leak_detect` functions to enable the output of memory leak information upon program exit.  
+The `setup_mem` function can also set the memory size to simulate a low-memory environment, testing whether the program can handle insufficient memory situations.  
+Additionally, the library provides `show_mem_info()` and `dump_mem_to_file()` for debugging memory.  
+Unlike complex tools such as Valgrind and Dr. Memory, the `memleak.h` library can be easily embedded into C/C++ code, making it convenient to use.  
+
+## Building and Importing the Library
+
+`memleak.h` supports three import methods: single-header file (in the `single_header_version` directory), static linking, and dynamic linking.  
+#### Single-Header File
+Simply copy the `memleak.h` file from the `single_header_version` directory to your project directory. This method only supports C++ projects.  
+
+#### Static Linking
+Static linking supports both C and C++ projects.  
+First, compile the source code of the `memleak` library, `memleak.cpp`:
+```bash
+g++ -c memleak.cpp -o bin/memleak_static.o -O2 -Wall -Iinclude
+```
+
+Then, compile the C file to generate the object file (C++ can also be used):
+```bash
+gcc -c memleak_ctest.c -o bin/memleak_ctest.o -O2 -Wall -Iinclude
+```
+
+Finally, link the files. Since `gcc` does not support the format of `memleak_static.o` compiled with C++, this step requires `g++` instead of `gcc`.
+```bash
+g++ bin/memleak_ctest.o bin/memleak_static.o -o bin/memleak_ctest_static -s -Wall -Iinclude
+```
+
+#### Dynamic Linking
+Dynamic linking also supports both C and C++ projects.  
+First, compile the DLL file (use `.so` on Linux):
+```bash
+g++ memleak.cpp -o bin/memleak.dll -s -O2 -Wall -DMEMLEAK_DLL_EXPORT -shared -Wl,--out-implib,lib\libmemleak.a -Iinclude
+```
+Then, link this DLL:
+```bash
+gcc memleak_ctest.c -o bin/memleak_ctest -s -Wall -Iinclude -Llib -lmemleak
+```
+
+For a complete example of compiling and linking this library, refer to the `build.bat` file in the project.
+
+## Usage
+
+- `void setup_mem(size_t size, size_t mcb_count, unsigned char initVal)`:  
+`size`: Total memory size.  
+`mcb_count`: Maximum number of memory blocks that can be allocated. If set to 0, the default value (8192) is used.  
+`initVal`: Byte used to initialize memory. Typically 0, but if debugging uninitialized variables, it is recommended to use a special value like `0xcd`.  
+- `void setup_mem_noinit(size_t size, size_t mcb_count)`:  
+This version does not initialize memory. The parameters are the same as `setup_mem`.  
+- `void set_leak_detect(bool enabled)`:  
+Sets whether to display memory leak information upon program exit. If `true`, it will display.  
+In C, `stdbool.h` needs to be imported.  
+- `void shutdown()`:  
+Releases the memory allocated by `setup_mem()`, closes the custom memory allocator, and disables leak detection.  
+
+- `void show_mem_info()`:  
+Displays current memory information on standard output, such as the number of allocated memory blocks and their sizes. Example format:  
+```
+Total: 1048576B Used: 140B Free: 1048436B
+   Start - Size
+0. 0 - 12
+1. 12 - 40
+2. 52 - 4
+3. 56 - 80
+4. 136 - 4
+5 memory blocks.
+```
+
+- `void dump_mem_to_file(const char *filename)`:  
+Exports all memory to a binary file named `filename`, with the file size equal to the memory size requested when calling `setup_mem()`.  
+
+For complete usage examples, refer to `memleak_ctest.c` and `memleak_test.cpp`. For internal implementation details of the memleak.h library, such as examples of using the `MemMgr` memory pool class, see `memmgr_test.cpp`.  
+
+#### Details on Overloading Standard Library Functions
+
+For C++, memleak.h overloads the default `operator new`, `operator delete`, and `new[]`, `delete[]` to ensure that the entire STL, such as `vector` and `map`, uses the custom `new` and `delete` for memory allocation.  
+For C, memleak.h uses macro definitions to overload `malloc`, `calloc`, `realloc`, `free`, as well as the `strdup` and `wcsdup` functions that internally call `malloc`.  
+When not enabled (i.e., `setup_mem()` not called), the overloaded memory allocation functions will directly call the standard library functions, such as `malloc` calling `std::malloc`, without affecting normal memory allocation.  
+Once enabled (after calling `setup_mem()`), the overloaded functions will call the custom memory allocator. Calling `shutdown()` will revert to using the standard library functions.  
+
+You can use the macro `DISABLE_OVERWRITING_STD` to avoid overloading the standard library.  
+If `MEMLEAK_MACRO_WITH_ARG` is defined, it will define macros with parameters, such as `#define malloc(size) _override_std_malloc((size))`; otherwise, it will use the default `#define malloc _override_std_malloc`.  
+If `MEMLEAK_DLL_EXPORT` is defined, it will export functions to the dynamic library.  
+Additionally, if you want to utilize the internal implementation of memleak.h, such as the `MemMgr` class, you need to define the macro `MEMLEAK_NO_EXTERNAL`, meaning no external functions will be used. The internal implementation of memleak.h is stored in the `memleak` namespace, which can be imported in C++ code.    
+
+#### Boundary Conditions and Exception Handling for Custom Functions
+
+The custom `malloc`, `calloc`, `realloc`, `free`, and other functions behave consistently with the standard library functions.  
+
+The custom `malloc`, `calloc`, and `realloc` functions return `nullptr` when memory is insufficient.  
+If `realloc` and `free` are passed incorrect memory addresses, a `ReallocError` exception will be thrown, and for `free`, a `DoubleFreeError` will be thrown. In C++, these two exceptions can be caught, while in C, the program will terminate directly.  
+If the total size passed to `malloc` and `calloc` is 0, they will return `nullptr`. If `realloc` is passed a size of 0, it will free the passed memory pointer.  
+`free` supports passing `nullptr` as a parameter.  
